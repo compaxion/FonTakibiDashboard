@@ -1,0 +1,6 @@
+streamlit
+pandas
+plotly
+prophet
+tefas-crawler
+watchdog
