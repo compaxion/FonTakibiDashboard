@@ -6,7 +6,8 @@ A financial analysis tool developed to track, manage, and predict investment fun
 
 * **Real-time Analysis:** Live data fetching from TEFAS with automated metric calculations including Volatility and Sharpe Ratio.
 * **Core-Satellite Portfolio Management:** Organizes funds into "Core" for long-term stability and "Satellite" for high-growth alpha.
-* **AI-Powered Predictions:** * **Facebook Prophet:** Seasonal trend analysis and price projections.
+* **AI-Powered Predictions:** 
+*   * **Facebook Prophet:** Seasonal trend analysis and price projections.
     * **Monte Carlo Simulation:** 1,000+ stochastic path simulations for probability distributions.
 * **Persistence:** Local SQLite database integration for transaction history and asset management.
 
