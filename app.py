@@ -2,13 +2,33 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+import datetime
 from data_engine import fetch_live_fund_data, calculate_metrics
-from database import init_db, add_transaction, get_portfolio_summary, get_all_transactions, clear_database, add_tracked_fund, remove_tracked_fund, get_tracked_funds
+from database import init_db, add_transaction, get_portfolio_summary, get_all_transactions, clear_database, \
+    add_tracked_fund, remove_tracked_fund, get_tracked_funds
 from prediction import run_monte_carlo_simulation, run_prophet_forecast
+from translations import LANG
 
-st.set_page_config(page_title="Fon Takibi", layout="wide")
+if 'language' not in st.session_state:
+    st.session_state['language'] = 'TR'
+
+selected_lang = st.sidebar.radio(
+    "🌍 Dil / Language",
+    options=["TR", "EN"],
+    index=0 if st.session_state['language'] == 'TR' else 1,
+    horizontal=True
+)
+
+st.session_state['language'] = selected_lang
+
+
+def _(text_key):
+    return LANG[st.session_state['language']].get(text_key, text_key)
+
+
+st.set_page_config(page_title=_("app_title"), layout="wide")
 init_db()
-st.title("Fon Takibi")
+st.title(_("app_title"))
 st.markdown("---")
 
 if 'core_funds' not in st.session_state or 'satellite_funds' not in st.session_state:
@@ -16,20 +36,19 @@ if 'core_funds' not in st.session_state or 'satellite_funds' not in st.session_s
     st.session_state.core_funds = db_core
     st.session_state.satellite_funds = db_sat
 
-st.sidebar.header("Portföy Yönetimi")
+st.sidebar.header(_("portfolio_dist"))
 
-if st.sidebar.button("Piyasa Verilerini Yenile"):
+if st.sidebar.button(_("refresh_data")):
     st.cache_data.clear()
-    st.sidebar.success("Önbellek temizlendi. Canlı veriler çekiliyor...")
+    st.sidebar.success(_("clear_cache_success"))
     st.rerun()
 
 st.sidebar.markdown("---")
-st.sidebar.subheader("Yeni Fon Ekle")
-new_fund_code = st.sidebar.text_input("Fon Kodu (Örn: MAC, ACC, IIH):").upper()
-# Arayüzdeki şık ve uzun metinlerin kalabilir
-new_fund_cat = st.sidebar.selectbox("Kategori Seçin:", ["Core - Uzun Vade", "Satellite - Al-Sat"])
+st.sidebar.subheader(_("add_new_fund"))
+new_fund_code = st.sidebar.text_input(_("new_fund_code")).upper()
+new_fund_cat = st.sidebar.selectbox(_("choose_category"), ["Core", "Satellite"])
 
-if st.sidebar.button("Fonu Ekle"):
+if st.sidebar.button(_("add_the_fund")):
     if new_fund_code:
         fund_list = [f.strip() for f in new_fund_code.split(',') if f.strip()]
         eklenenler = []
@@ -47,33 +66,33 @@ if st.sidebar.button("Fonu Ekle"):
                 eklenenler.append(fund)
 
         if eklenenler:
-            st.sidebar.success(f"{', '.join(eklenenler)} -> {internal_cat} listesine eklendi.")
+            st.sidebar.success(f"{', '.join(eklenenler)} -> {internal_cat} " + _("added_to_the_list"))
             st.rerun()
         else:
-            st.sidebar.warning("Girdiğiniz fon(lar) zaten listede mevcut veya geçersiz.")
+            st.sidebar.warning(_("error_adding_existing"))
 
 st.sidebar.markdown("---")
-st.sidebar.subheader("Fon Çıkar")
+st.sidebar.subheader(_("delete_fund"))
 all_current_funds = st.session_state.core_funds + st.session_state.satellite_funds
-fund_to_remove = st.sidebar.selectbox("Kaldırılacak Fonu Seçin:", ["Seçiniz..."] + all_current_funds)
+fund_to_remove = st.sidebar.selectbox(_("fund_to_removed"), [_("choose")] + all_current_funds)
 
-if st.sidebar.button("Fonu Kaldır"):
-    if fund_to_remove != "Seçiniz...":
+if st.sidebar.button(_("remove_the_fund")):
+    if fund_to_remove != _("choose"):
         if fund_to_remove in st.session_state.core_funds:
             st.session_state.core_funds.remove(fund_to_remove)
         elif fund_to_remove in st.session_state.satellite_funds:
             st.session_state.satellite_funds.remove(fund_to_remove)
 
         remove_tracked_fund(fund_to_remove)
-        st.sidebar.success(f"{fund_to_remove} listeden çıkarıldı ve veritabanı güncellendi.")
+        st.sidebar.success(f"{fund_to_remove}" + _("has_been_removed"))
         st.rerun()
 
 my_funds = st.session_state.core_funds + st.session_state.satellite_funds
 
 if not my_funds:
-    st.warning("Takip listesinde hiç fon bulunmuyor. Lütfen sol menüden fon ekleyin.")
+    st.warning(_("warning_no_fund"))
 else:
-    with st.spinner('Piyasa verileri canlı olarak işleniyor...'):
+    with st.spinner(_("data_fetching")):
         live_df = fetch_live_fund_data(my_funds)
 
     if live_df is not None and not live_df.empty:
@@ -82,8 +101,9 @@ else:
         metrics_data = calculate_metrics(live_df)
         metrics_data = metrics_data.reset_index()
 
-        metrics_data['Fon Adı'] = metrics_data['code'].apply(lambda x: FUND_DICT.get(x, f"{x} Fonu"))
-        metrics_data['Kategori'] = metrics_data['code'].apply(
+        # Dinamik DataFrame Sütunları
+        metrics_data[_("fund_name")] = metrics_data['code'].apply(lambda x: FUND_DICT.get(x, f"{x} " + _("fund")))
+        metrics_data[_("category")] = metrics_data['code'].apply(
             lambda x: "Core" if x in st.session_state.core_funds else "Satellite")
 
 
@@ -94,53 +114,84 @@ else:
 
 
         aktif_sekme = st.radio(
-            "Modüller",
-            ["Canlı Analiz ve Dağılım", "Kişisel Portföyüm ve İşlemler", "Monte Carlo Simülasyonu","Prophet Trend Analizi"],
+            _("modules"),
+            [_("live_analysis"), _("personal_portfolio"), _("monte_carlo_sim"), _("prophet_analysis")],
             horizontal=True,
             label_visibility="collapsed"
         )
         st.markdown("---")
 
-        if aktif_sekme == "Canlı Analiz ve Dağılım":
+        # Sekmeler dil seçimine göre değişeceği için çeviri fonksiyonuyla kontrol:
+        if aktif_sekme == _("live_analysis"):
+
+            metric_mapping = {
+                _("weekly_return"): "Haftalık Getiri (%)",
+                _("monthly_return"): "Aylık Getiri (%)",
+                _("3month_return"): "3 Aylık Getiri (%)",
+                _("ytd_return"): "YTD (%)",
+                _("yearly_return"): "1 Yıllık Getiri (%)"
+            }
+
             col1, col2 = st.columns(2)
             best_fund = metrics_data.sort_values(by='1 Yıllık Getiri (%)', ascending=False).iloc[0]
-            col1.metric(f"Lider Fon (1 Yıllık) -> {best_fund['code']}", f"%{best_fund['1 Yıllık Getiri (%)']}",
-                        f"Fiyat: {best_fund['Güncel Fiyat (TL)']} TL")
-            col2.metric("Sistem Başlangıç", "13 Mart 2026")
+            col1.metric(f"{_('leader_fund')} -> {best_fund['code']}", f"%{best_fund['1 Yıllık Getiri (%)']}",
+                        f"{_('price')}: {best_fund['Güncel Fiyat (TL)']} TL")
+            bugun = datetime.date.today()
+
+            if st.session_state['language'] == 'TR':
+                aylar_tr = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran",
+                            "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"]
+                dinamik_tarih = f"{bugun.day} {aylar_tr[bugun.month - 1]} {bugun.year}"
+            else:
+                aylar_en = ["January", "February", "March", "April", "May", "June",
+                            "July", "August", "September", "October", "November", "December"]
+                dinamik_tarih = f"{aylar_en[bugun.month - 1]} {bugun.day}, {bugun.year}"
+
+            col2.metric(_("system_date"), dinamik_tarih)
 
             st.markdown("---")
-            st.subheader("Zaman Serisi Analizi")
+            st.subheader(_("time_series_analysis"))
 
-            selected_metric = st.radio(
-                "Grafikte Gösterilecek Periyodu Seçin:",
-                ["Haftalık Getiri (%)", "Aylık Getiri (%)", "3 Aylık Getiri (%)", "YTD (%)", "1 Yıllık Getiri (%)"],
+            selected_label = st.radio(
+                _("select_period"),
+                list(metric_mapping.keys()),
                 index=4, horizontal=True
             )
+            selected_metric = metric_mapping[selected_label]
 
-
-            def belirle_grafik_rengi(row):
+            def grafik_renk_belirle(row):
                 if row[selected_metric] < 0:
-                    return "Zarar"
-                return row["Kategori"]
+                    return _("loss")
+                return row[_("category")]
 
+            metrics_data[_("color_group")] = metrics_data.apply(grafik_renk_belirle, axis=1)
 
-            metrics_data['Renk_Grubu'] = metrics_data.apply(belirle_grafik_rengi, axis=1)
+            metrics_data["Bar_Text"] = metrics_data.apply(
+                lambda x: f"{x['Güncel Fiyat (TL)']:.4f} TL (%{x[selected_metric]:.2f})", axis=1
+            )
+
             c1, c2 = st.columns(2)
 
             with c1:
                 fig_bar = px.bar(
                     metrics_data.sort_values(selected_metric, ascending=False),
-                    x="code", y=selected_metric, color="Renk_Grubu",
-                    text="Güncel Fiyat (TL)", hover_data=["Fon Adı"],
-                    color_discrete_map={"Core": "#2ecc71", "Satellite": "#3498db", "Zarar": "#e74c3c"}
+                    x="code", y=selected_metric, color=_("color_group"),
+                    text="Bar_Text",
+                    hover_data=[_("fund_name"), "Güncel Fiyat (TL)"],
+                    color_discrete_map={"Core": "#2ecc71", "Satellite": "#3498db", _("loss"): "#e74c3c"},
+                    labels={
+                        selected_metric: selected_label,
+                        "code": _("code"),
+                        "Güncel Fiyat (TL)": _("current_price")
+                    }
                 )
                 fig_bar.update_traces(textposition='outside')
                 st.plotly_chart(fig_bar, width='stretch')
 
             with c2:
-                st.write("**Stratejik Hedef Dağılımı**")
+                st.write(f"**{_('strategic_target')}**")
 
-                core_ratio = st.slider("Core (Uzun Vade) Ağırlığı (%)", min_value=10, max_value=90, value=60, step=5)
+                core_ratio = st.slider(_("core_weight"), min_value=10, max_value=90, value=60, step=5)
                 sat_ratio = 100 - core_ratio
 
                 fig_pie = px.pie(values=[core_ratio, sat_ratio],
@@ -149,33 +200,46 @@ else:
                 st.plotly_chart(fig_pie, width='stretch')
 
             st.markdown("---")
-            st.subheader("Kapsamlı Sistem Tablosu")
+            st.subheader(_("comprehensive_table"))
 
+            # dinamik sütun isimleriyle dataframe oluşturma:
             display_df = metrics_data[
-                ['code', 'Fon Adı', 'Kategori', 'Güncel Fiyat (TL)', 'Haftalık Getiri (%)', 'Aylık Getiri (%)',
+                ['code', _("fund_name"), _("category"), 'Güncel Fiyat (TL)', 'Haftalık Getiri (%)', 'Aylık Getiri (%)',
                  '3 Aylık Getiri (%)', 'YTD (%)', '1 Yıllık Getiri (%)', 'Volatilite (Risk %)',
                  'Sharpe Oranı']].set_index('code')
+
+            display_columns_map = {
+                'Güncel Fiyat (TL)': _("current_price"),
+                'Haftalık Getiri (%)': _("weekly_return"),
+                'Aylık Getiri (%)': _("monthly_return"),
+                '3 Aylık Getiri (%)': _("3month_return"),
+                'YTD (%)': _("ytd_return"),
+                '1 Yıllık Getiri (%)': _("yearly_return"),
+                'Volatilite (Risk %)': _("volatility"),
+                'Sharpe Oranı': _("sharpe_ratio")
+            }
+            display_df = display_df.rename(columns=display_columns_map)
+
             st.dataframe(
                 display_df.style
                 .map(highlight_negatives,
-                     subset=['Haftalık Getiri (%)', 'Aylık Getiri (%)', '3 Aylık Getiri (%)', 'YTD (%)',
-                             '1 Yıllık Getiri (%)', 'Sharpe Oranı'])
-                .highlight_max(subset=['1 Yıllık Getiri (%)', 'Sharpe Oranı'], color='rgba(46, 204, 113, 0.3)'),
+                     subset=[_("weekly_return"), _("monthly_return"), _("3month_return"), _("ytd_return"),
+                             _("yearly_return"), _("sharpe_ratio")])
+                .highlight_max(subset=[_("yearly_return"), _("sharpe_ratio")], color='rgba(46, 204, 113, 0.3)'),
                 width='stretch'
             )
 
             st.markdown("---")
-            st.subheader("Akıllı Portföy Dağıtıcısı (Sharpe Optimizasyonu)")
-            yatirim_tutari = st.number_input("Dağıtılacak Toplam Tutarı Girin (TL):", min_value=1000, value=350000,
-                                             step=10000)
+            st.subheader(_("smart_allocator"))
+            yatirim_tutari = st.number_input(_("total_amount"), min_value=1000, value=350000, step=10000)
 
             core_sermaye = yatirim_tutari * (core_ratio / 100)
             satellite_sermaye = yatirim_tutari * (sat_ratio / 100)
 
             metrics_data['Optimum_Agirlik'] = metrics_data['Sharpe Oranı'].clip(lower=0.05)
 
-            core_df = metrics_data[metrics_data['Kategori'] == 'Core'].copy()
-            sat_df = metrics_data[metrics_data['Kategori'] == 'Satellite'].copy()
+            core_df = metrics_data[metrics_data[_("category")] == 'Core'].copy()
+            sat_df = metrics_data[metrics_data[_("category")] == 'Satellite'].copy()
 
             core_df['Dağılım Oranı (%)'] = (core_df['Optimum_Agirlik'] / core_df['Optimum_Agirlik'].sum()) * 100
             sat_df['Dağılım Oranı (%)'] = (sat_df['Optimum_Agirlik'] / sat_df['Optimum_Agirlik'].sum()) * 100
@@ -186,137 +250,180 @@ else:
             lot_df['Alınacak Adet (Lot)'] = lot_df['Hedef Bütçe (TL)'] / lot_df['Güncel Fiyat (TL)']
 
             final_lot_df = lot_df[
-                ['code', 'Fon Adı', 'Kategori', 'Dağılım Oranı (%)', 'Hedef Bütçe (TL)', 'Alınacak Adet (Lot)']].copy()
+                ['code', _("fund_name"), _("category"), 'Dağılım Oranı (%)', 'Hedef Bütçe (TL)',
+                 'Alınacak Adet (Lot)']].copy()
             final_lot_df['Dağılım Oranı (%)'] = final_lot_df['Dağılım Oranı (%)'].apply(lambda x: f"% {x:.1f}")
             final_lot_df['Hedef Bütçe (TL)'] = final_lot_df['Hedef Bütçe (TL)'].apply(lambda x: f"{x:,.2f} TL")
             final_lot_df['Alınacak Adet (Lot)'] = final_lot_df['Alınacak Adet (Lot)'].apply(lambda x: f"{x:,.3f}")
 
-            st.dataframe(final_lot_df.set_index('code').sort_values(by=['Kategori', 'Dağılım Oranı (%)'],
+            final_lot_df = final_lot_df.rename(columns={
+                'Dağılım Oranı (%)': _("allocation_ratio"),
+                'Hedef Bütçe (TL)': _("target_budget"),
+                'Alınacak Adet (Lot)': _("lot_to_buy")
+            })
+
+            st.dataframe(final_lot_df.set_index('code').sort_values(by=[_("category"), _("allocation_ratio")],
                                                                     ascending=[True, False]), width='stretch')
 
-        elif aktif_sekme == "Kişisel Portföyüm ve İşlemler":
-            st.subheader("Anlık Portföy Durumu (Kâr / Zarar)")
+        elif aktif_sekme == _("personal_portfolio"):
+
+            st.subheader(_("current_portfolio_status"))
+
             port_df = get_portfolio_summary()
+
             if not port_df.empty:
+
                 merged_port = pd.merge(port_df, metrics_data[['code', 'Güncel Fiyat (TL)']], left_on='Fon Kodu', right_on='code', how='left')
                 merged_port['Güncel Değer (TL)'] = merged_port['Sahip Olunan Lot'] * merged_port['Güncel Fiyat (TL)']
-                merged_port['Net Kâr/Zarar (TL)'] = merged_port['Güncel Değer (TL)'] - merged_port['Yatırılan Ana Para (TL)']
-                merged_port['Getiri Oranı (%)'] = (merged_port['Net Kâr/Zarar (TL)'] / merged_port['Yatırılan Ana Para (TL)']) * 100
-                display_port = merged_port[
-                    ['Fon Kodu', 'Sahip Olunan Lot', 'Ortalama Maliyet (TL)', 'Güncel Fiyat (TL)', 'Yatırılan Ana Para (TL)', 'Güncel Değer (TL)', 'Net Kâr/Zarar (TL)', 'Getiri Oranı (%)']]
-                st.dataframe(display_port.set_index('Fon Kodu').style.map(highlight_negatives,
-                                                                          subset=['Net Kâr/Zarar (TL)', 'Getiri Oranı (%)']).format("{:.2f}",
-                                                                                                                                    subset=['Ortalama Maliyet (TL)', 'Güncel Fiyat (TL)', 'Yatırılan Ana Para (TL)', 'Güncel Değer (TL)', 'Net Kâr/Zarar (TL)', 'Getiri Oranı (%)']), width='stretch')
-                m1, m2, m3 = st.columns(3)
-                m1.metric("Toplam Yatırılan Ana Para", f"{display_port['Yatırılan Ana Para (TL)'].sum():,.2f} TL")
-                m2.metric("Portföyün Güncel Değeri", f"{display_port['Güncel Değer (TL)'].sum():,.2f} TL")
-                m3.metric("Toplam Kâr / Zarar", f"{(display_port['Güncel Değer (TL)'].sum() - display_port['Yatırılan Ana Para (TL)'].sum()):,.2f} TL")
-            else:
-                st.info("Henüz sisteme işlenmiş bir alım-satım kaydı bulunmuyor.")
 
+                merged_port['Net Kâr/Zarar (TL)'] = merged_port['Güncel Değer (TL)'] - merged_port[
+                    'Yatırılan Ana Para (TL)']
+
+                merged_port['Getiri Oranı (%)'] = (merged_port['Net Kâr/Zarar (TL)'] / merged_port[
+                    'Yatırılan Ana Para (TL)']) * 100
+
+                display_port = merged_port[
+                    ['Fon Kodu', 'Sahip Olunan Lot', 'Ortalama Maliyet (TL)', 'Güncel Fiyat (TL)',
+                     'Yatırılan Ana Para (TL)', 'Güncel Değer (TL)', 'Net Kâr/Zarar (TL)', 'Getiri Oranı (%)']]
+
+                port_columns_map = {
+                    'Fon Kodu': _("code"),
+                    'Sahip Olunan Lot': _("owned_lots"),
+                    'Ortalama Maliyet (TL)': _("avg_cost"),
+                    'Güncel Fiyat (TL)': _("current_price"),
+                    'Yatırılan Ana Para (TL)': _("invested_principal"),
+                    'Güncel Değer (TL)': _("current_value"),
+                    'Net Kâr/Zarar (TL)': _("net_profit_loss"),
+                    'Getiri Oranı (%)': _("return_rate")
+                }
+
+                display_port = display_port.rename(columns=port_columns_map)
+                st.dataframe(display_port.set_index(_("code")).style.map(highlight_negatives,
+                                                                         subset=[_("net_profit_loss"),
+                                                                                 _("return_rate")]).format("{:.2f}",
+
+                                                                                                           subset=[
+                                                                                                               _("avg_cost"),
+                                                                                                               _("current_price"),
+                                                                                                               _("invested_principal"),
+                                                                                                               _("current_value"),
+                                                                                                               _("net_profit_loss"),
+                                                                                                               _("return_rate")]),
+                             width='stretch')
+
+                m1, m2, m3 = st.columns(3)
+                m1.metric(_("total_invested"), f"{merged_port['Yatırılan Ana Para (TL)'].sum():,.2f} TL")
+                m2.metric(_("current_portfolio_value"), f"{merged_port['Güncel Değer (TL)'].sum():,.2f} TL")
+                m3.metric(_("total_profit_loss"),
+                          f"{(merged_port['Güncel Değer (TL)'].sum() - merged_port['Yatırılan Ana Para (TL)'].sum()):,.2f} TL")
+
+            else:
+                st.info(_("no_transactions"))
             st.markdown("---")
             c_form, c_history = st.columns([1, 2])
             with c_form:
-                st.subheader("Yeni İşlem Gir")
+                st.subheader(_("new_transaction"))
                 with st.form("islem_ekle_form"):
-                    islem_tarihi = st.date_input("İşlem Tarihi")
-                    islem_fon = st.selectbox("Fon Kodu", my_funds)
-                    islem_tipi = st.selectbox("İşlem Tipi", ["ALIM", "SATIM"])
-                    islem_tutar = st.number_input("İşlem Tutarı (TL)", min_value=1.0, step=100.0)
-                    islem_fiyat = st.number_input("Gerçekleşen Birim Fiyat (TL)", min_value=0.0001, step=0.01, format="%.4f")
-                    if st.form_submit_button("İşlemi Kaydet"):
-                        add_transaction(islem_fon, islem_tipi, islem_tutar,
-                                        (islem_tutar / islem_fiyat if islem_fiyat > 0 else 0), islem_fiyat, islem_tarihi.strftime("%Y-%m-%d"))
-                        st.success("İşlem başarıyla veritabanına kaydedildi.")
+                    islem_tarihi = st.date_input(_("transaction_date"))
+                    islem_fon = st.selectbox(_("fund_code_label"), my_funds)
+                    islem_tipi_ui = st.selectbox(_("transaction_type"), [_("buy"), _("sell")])
+                    islem_tutar = st.number_input(_("transaction_amount"), min_value=1.0, step=100.0)
+                    islem_fiyat = st.number_input(_("unit_price"), min_value=0.0001, step=0.01, format="%.4f")
+
+                    if st.form_submit_button(_("save_transaction")):
+                        db_islem_tipi = "ALIM" if islem_tipi_ui == _("buy") else "SATIM"
+
+                        add_transaction(islem_fon, db_islem_tipi, islem_tutar,
+                                        (islem_tutar / islem_fiyat if islem_fiyat > 0 else 0), islem_fiyat,
+                                        islem_tarihi.strftime("%Y-%m-%d"))
+                        st.success(_("transaction_saved"))
                         st.rerun()
+
             with c_history:
-                st.subheader("İşlem Geçmişi (Ledger)")
+                st.subheader(_("transaction_history"))
                 history_df = get_all_transactions()
                 if not history_df.empty:
                     st.dataframe(history_df.sort_values(by="id", ascending=False).set_index("id"), width='stretch')
-                    with st.expander("Veritabanı Yönetimi (Tehlikeli Bölge)"):
-                        st.warning("Tüm işlem geçmişiniz kalıcı olarak silinecektir. Bu işlem geri alınamaz!")
-                        if st.button("Tüm Veritabanını Sıfırla"):
+                    with st.expander(_("db_management")):
+                        st.warning(_("db_warning"))
+                        if st.button(_("reset_db")):
                             clear_database()
-                            st.success("Veritabanı başarıyla temizlendi!")
+                            st.success(_("db_cleared"))
                             st.rerun()
                 else:
-                    st.write("Kayıt bulunamadı.")
+                    st.write(_("no_records"))
 
-        elif aktif_sekme == "Monte Carlo Simülasyonu":
-            st.subheader("Monte Carlo Simülasyonu (30 Günlük Tahmin)")
-            st.info(
-                "Bu model fonun geçmiş volatilitesini kullanarak önümüzdeki 30 gün için 1.000 farklı rastgele fiyat senaryosu hesaplar.")
+        elif aktif_sekme == _("monte_carlo_sim"):
+            st.subheader(_("mc_title"))
+            st.info(_("mc_info"))
             with st.form("monte_carlo_form"):
-                selected_pred_fund = st.selectbox("Simülasyon Yapılacak Fonu Seçin:", my_funds)
-                submit_mc = st.form_submit_button("Simülasyonu Başlat")
+                selected_pred_fund = st.selectbox(_("select_fund_mc"), my_funds)
+                submit_mc = st.form_submit_button(_("start_sim"))
             if submit_mc:
-                with st.spinner(f"{selected_pred_fund} için 1.000 farklı paralel evren hesaplanıyor..."):
+                with st.spinner(f"{selected_pred_fund} {_('calculating_mc')}"):
                     fund_history = live_df[live_df['code'] == selected_pred_fund]['price']
                     if len(fund_history) < 30:
-                        st.warning("Bu fon için yeterli geçmiş veri bulunamadı.")
+                        st.warning(_("insufficient_data"))
                     else:
-                        st.session_state['mc_results'] = run_monte_carlo_simulation(fund_history, days_to_simulate=30, num_simulations=1000)
+                        st.session_state['mc_results'] = run_monte_carlo_simulation(fund_history, days_to_simulate=30,
+                                                                                    num_simulations=1000)
                         st.session_state['mc_fund'] = selected_pred_fund
 
             if 'mc_results' in st.session_state and st.session_state.get('mc_fund') == selected_pred_fund:
                 mc_results = st.session_state['mc_results']
-
-                st.markdown(f"**{selected_pred_fund} Fonu - 30 Gün Sonraki Olası Fiyat Dağılımı (Güven Aralıkları)**")
-
+                st.markdown(f"**{selected_pred_fund} {_('price_dist_30d')}**")
                 c1, c2, c3, c4, c5 = st.columns(5)
-                c1.metric("En Kötü (%5)", f"{mc_results['worst']:.4f}",
+                c1.metric(_("worst") + " (%5)", f"{mc_results['worst']:.4f}",
                           f"{((mc_results['worst'] / mc_results['last_price']) - 1) * 100:.2f}%")
-                c2.metric("Alt Çeyrek (%25)", f"{mc_results['p25']:.4f}",
+                c2.metric(_("lower_quartile") + " (%25)", f"{mc_results['p25']:.4f}",
                           f"{((mc_results['p25'] / mc_results['last_price']) - 1) * 100:.2f}%")
-                c3.metric("Medyan (%50)", f"{mc_results['median']:.4f}",
+                c3.metric(_("median") + " (%50)", f"{mc_results['median']:.4f}",
                           f"{((mc_results['median'] / mc_results['last_price']) - 1) * 100:.2f}%")
-                c4.metric("Üst Çeyrek (%75)", f"{mc_results['p75']:.4f}",
+                c4.metric(_("upper_quartile") + " (%75)", f"{mc_results['p75']:.4f}",
                           f"{((mc_results['p75'] / mc_results['last_price']) - 1) * 100:.2f}%")
-                c5.metric("En İyi (%95)", f"{mc_results['best']:.4f}",
+                c5.metric(_("best") + " (%95)", f"{mc_results['best']:.4f}",
                           f"{((mc_results['best'] / mc_results['last_price']) - 1) * 100:.2f}%")
 
                 st.markdown("---")
-
                 col_hist, col_lines = st.columns([1, 1])
 
                 with col_hist:
-                    st.write("**Simülasyon Sonu Fiyat Yığılması (Histogram)**")
+                    st.write(f"**{_('histogram_title')}**")
                     final_prices = mc_results['simulations'][-1, :]
                     fig_hist = px.histogram(
                         x=final_prices, nbins=50,
-                        labels={'x': '30. Gün Fiyatı (TL)', 'y': 'Frekans (Olasılık)'},
+                        labels={'x': _('possible_price'), 'y': _('scenario_count')},
                         color_discrete_sequence=['#9b59b6']
                     )
                     fig_hist.add_vline(x=mc_results['last_price'], line_dash="dot", line_color="white",
-                                       annotation_text="Şu Anki Fiyat")
-                    fig_hist.update_layout(showlegend=False, xaxis_title="Olası Fiyat (TL)",
-                                           yaxis_title="Senaryo Sayısı")
+                                       annotation_text=_("current_price_line"))
+                    fig_hist.update_layout(showlegend=False, xaxis_title=_("possible_price"),
+                                           yaxis_title=_("scenario_count"))
                     st.plotly_chart(fig_hist, width='stretch', key="hist")
 
                 with col_lines:
-                    st.write("**Olası Fiyat Yolları (Rastgele 50 Senaryo)**")
+                    st.write(f"**{_('possible_paths')}**")
                     sim_df = pd.DataFrame(mc_results['simulations'][:, :50])
-                    fig_mc = px.line(sim_df, labels={"value": "Fiyat (TL)", "index": "Günler", "variable": "Senaryo"})
-                    fig_mc.update_layout(showlegend=False, xaxis_title="Gün", yaxis_title="Fiyat (TL)")
-                    fig_mc.add_hline(y=mc_results['last_price'], line_dash="dot", line_color="white", annotation_text="Şu Anki Fiyat")
+                    fig_mc = px.line(sim_df, labels={"value": _("price"), "index": _("days"), "variable": "Senaryo"})
+                    fig_mc.update_layout(showlegend=False, xaxis_title=_("days"), yaxis_title=_("price"))
+                    fig_mc.add_hline(y=mc_results['last_price'], line_dash="dot", line_color="white",
+                                     annotation_text=_("current_price_line"))
                     st.plotly_chart(fig_mc, width='stretch', key="lines")
 
-        elif aktif_sekme == "Prophet Trend Analizi":
-            st.subheader("Facebook Prophet Zaman Serisi Analizi")
-            st.info("Bu makine öğrenmesi modeli, fonun geçmiş fiyatlarındaki döngüsel hareketleri (haftalık, aylık, yıllık trendler) öğrenerek gelecek 30 gün için tahmin yürütür ve bir güvenlik konisi çizer.")
+        elif aktif_sekme == _("prophet_analysis"):
+            st.subheader(_("prophet_title"))
+            st.info(_("prophet_info"))
 
             with st.form("prophet_form"):
-                selected_prophet_fund = st.selectbox("Modelin Eğitileceği Fonu Seçin:", my_funds)
-                submit_prophet = st.form_submit_button("Tahmin Üret")
+                selected_prophet_fund = st.selectbox(_("select_fund_prophet"), my_funds)
+                submit_prophet = st.form_submit_button(_("generate_forecast"))
 
             if submit_prophet:
-                with st.spinner(f"{selected_prophet_fund} verileriyle Prophet sinir ağı eğitiliyor..."):
+                with st.spinner(f"{selected_prophet_fund} {_('training_prophet')}"):
                     fund_data = live_df[live_df['code'] == selected_prophet_fund].copy()
 
                     if len(fund_data) < 60:
-                        st.warning(
-                            "Bu fon için yeterli geçmiş veri bulunamadı. Makine öğrenmesi algoritmaları en az 2 aylık veriyle daha sağlıklı çalışır.")
+                        st.warning(_("insufficient_data_prophet"))
                     else:
                         forecast, model = run_prophet_forecast(fund_data, days_to_predict=30)
                         st.session_state['prophet_forecast'] = forecast
@@ -332,30 +439,31 @@ else:
                 future_30d_lower = forecast['yhat_lower'].iloc[-1]
                 future_30d_upper = forecast['yhat_upper'].iloc[-1]
 
-                st.markdown(f"**{selected_prophet_fund} Fonu - 30 Günlük Model Beklentisi**")
+                st.markdown(f"**{selected_prophet_fund} {_('prophet_30d_exp')}**")
 
                 p1, p2, p3 = st.columns(3)
-                p1.metric("Şu Anki Gerçek Fiyat", f"{last_actual_price:.4f} TL")
-                p2.metric("30 Gün Sonraki Trend Hedefi", f"{future_30d_price:.4f} TL",
+                p1.metric(_("current_actual_price"), f"{last_actual_price:.4f} TL")
+                p2.metric(_("trend_target_30d"), f"{future_30d_price:.4f} TL",
                           f"{((future_30d_price / last_actual_price) - 1) * 100:.2f}%", delta_color="normal")
-                p3.metric("Prophet Güven Aralığı", f"{future_30d_lower:.4f} - {future_30d_upper:.4f} TL")
+                p3.metric(_("prophet_confidence"), f"{future_30d_lower:.4f} - {future_30d_upper:.4f} TL")
 
                 st.markdown("---")
 
                 fig_prophet = go.Figure()
 
-                # 1. Gerçek Fiyat Çizgisi
+                # Gerçek Fiyat Çizgisi
                 fig_prophet.add_trace(
-                    go.Scatter(x=historical['date'], y=historical['price'], mode='lines', name='Gerçek Fiyat',
+                    go.Scatter(x=historical['date'], y=historical['price'], mode='lines', name=_("actual_price"),
                                line=dict(color='#2ecc71', width=2)))
 
-                # 2. Gelecek Tahmin Çizgisi (yhat)
+                # Gelecek Tahmin Çizgisi
                 future_forecast = forecast[forecast['ds'] > historical['date'].max()]
                 fig_prophet.add_trace(
-                    go.Scatter(x=future_forecast['ds'], y=future_forecast['yhat'], mode='lines', name='Prophet Trendi',
+                    go.Scatter(x=future_forecast['ds'], y=future_forecast['yhat'], mode='lines',
+                               name=_("prophet_trend"),
                                line=dict(color='#e74c3c', dash='dash', width=2)))
 
-                # 3. Güvenlik Konisi
+                # Güvenlik Konisi
                 fig_prophet.add_trace(go.Scatter(
                     x=pd.concat([future_forecast['ds'], future_forecast['ds'][::-1]]),
                     y=pd.concat([future_forecast['yhat_upper'], future_forecast['yhat_lower'][::-1]]),
@@ -364,12 +472,13 @@ else:
                     line=dict(color='rgba(255,255,255,0)'),
                     hoverinfo="skip",
                     showlegend=True,
-                    name='Güvenlik Konisi'
+                    name=_("confidence_cone")
                 ))
 
-                fig_prophet.update_layout(title=f"{selected_prophet_fund} Geçmiş Trend ve Gelecek Projeksiyonu", xaxis_title="Tarih", yaxis_title="Fiyat (TL)")
+                fig_prophet.update_layout(title=f"{selected_prophet_fund} {_('past_trend_future_proj')}",
+                                          xaxis_title=_("date"), yaxis_title=_("price"))
                 fig_prophet.add_vline(x=historical['date'].max(), line_dash="dot", line_color="white")
 
                 st.plotly_chart(fig_prophet, width='stretch')
     else:
-        st.error("Veri çekilemedi. Terminalde bir hata oluşmuş olabilir.")
+        st.error(_("fetch_error"))
